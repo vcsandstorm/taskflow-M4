@@ -1,0 +1,52 @@
+.container {
+  max-width: 640px;
+  margin: 40px auto;
+  padding: 0 16px;
+  text-align: left;
+}
+
+.subtitle {
+  color: #888;
+  font-size: 0.9rem;
+}
+
+.error {
+  color: #e5484d;
+}
+
+.task-list {
+  list-style: none;
+  padding: 0;
+}
+
+.task {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px;
+  margin-bottom: 8px;
+  border: 1px solid #444;
+  border-radius: 8px;
+}
+
+.task p {
+  margin: 4px 0 0;
+  color: #aaa;
+}
+
+.status {
+  font-size: 0.8rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.done {
+  background: #1f6f3f;
+  color: #fff;
+}
+
+.pending {
+  background: #7a5c00;
+  color: #fff;
+}
