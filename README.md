@@ -5,20 +5,21 @@ TaskFlow API (from Module 3), containerized with Docker, deployed to Railway, wi
 - **GitHub repository:** https://github.com/vcsandstorm/taskflow-M4
 - **Live application URL:** https://taskflow-m4-production.up.railway.app/api/tasks
 - **Frontend on Netlify (stretch goal 2):** https://taskflow-m4.netlify.app
-- **Docker Hub image (stretch goals 1 and 4):** https://hub.docker.com/r/vcsandstorm/taskflow – versioned releases `1.0.0` and `1.0.1`
+- **Docker Hub image (stretch goals 1 and 4):** https://hub.docker.com/r/vcsandstorm/taskflow – versioned releases `1.0.0`, `1.0.1` and `1.0.2`
 
 > Note: the `/api/tasks/summary` (AI summary) endpoint needs an `OPENAI_API_KEY`. It is not set on Railway because this assignment only uses `/api/tasks`.
 
 ## Tech stack
 
 - Java 21
-- Spring Boot 4.1.1 (Spring Web MVC)
+- Spring Boot 4.1.2 (Spring Web MVC) – upgraded from 4.1.1 to fix Jackson vulnerabilities (see Option 5)
 - Spring AI (OpenAI-compatible client, pointed at OpenRouter)
 - Maven
 - Docker (multi-stage build)
 - Railway (deployment)
 - GitHub Actions (CI) + Docker Hub (image registry)
 - JUnit 5 (unit tests)
+- OSV-Scanner (dependency vulnerability scanning in GitHub Actions)
 - React + Vite (frontend), Netlify (frontend hosting)
 
 ## API endpoints
@@ -89,7 +90,7 @@ Railway shows the deployment **"Add Dockerfile for Module 4"** as **ACTIVE**, st
 
 ## Errors and failures
 
-All four baseline tasks and stretch goals Option 1, Option 2 and Option 4 were completed. Below are the errors I hit along the way and how I fixed them.
+All four baseline tasks and stretch goals Options 1, 2, 4 and 5 were completed (Option 3 was not attempted). Below are the errors I hit along the way and how I fixed them.
 
 ### 1. `curl` returned nothing without `https://`
 
@@ -155,6 +156,18 @@ All four baseline tasks and stretch goals Option 1, Option 2 and Option 4 were c
 - **What happened:** after adding `CORS_ALLOWED_ORIGINS` on Railway, the running deployment still showed **0 Variables**.
 - **Cause:** Railway stages variable changes ("Apply 1 change") until they are deployed.
 - **Fix:** clicked **Deploy** in the "Apply 1 change" bar and waited for the new deployment to become Active.
+
+### 8. OSV-Scanner passed but had not scanned the Java dependencies
+
+- **What happened:** the first OSV-Scanner run was green, but its log showed:
+  ```
+  Scanned /github/workspace/pom.xml file and found 7 packages
+  Filtered 7 local/unscannable package/s from the scan.
+  ```
+  All 7 Maven dependencies were skipped – only the 168 React packages in `frontend/package-lock.json` were really checked.
+- **Cause:** `pom.xml` has no version numbers for its dependencies (Spring Boot's parent POM sets them), and OSV-Scanner skips packages without a version.
+- **Fix:** the workflow now builds the JAR first and scans it with `--x-plugins=java/archive`, so OSV-Scanner reads the exact version of every library packed inside the JAR. The next run found 14 real vulnerabilities (see Option 5).
+- **Lesson:** a green security scan only means something if you check *what* was scanned.
 
 ### Note: the project had no tests at first
 
@@ -278,6 +291,7 @@ on:
 |---|---|---|
 | `1.0.0` | `29bf239` | First versioned release: TaskFlow API with CI pipeline, CORS for the Netlify frontend and 5 seeded example tasks |
 | `1.0.1` | `a30d322` | **Bug fix (PATCH):** `PUT /api/tasks/{id}/complete` returned `200 OK` with an empty body for a task that does not exist. It now returns `404 Not Found`, matching `GET /api/tasks/{id}` |
+| `1.0.2` | `f854816` | **Security fix (PATCH):** upgraded Spring Boot 4.1.1 → 4.1.2, which brings Jackson 2.21.7 / 3.1.7 and fixes 14 known vulnerabilities found by OSV-Scanner (see Option 5) |
 
 Release steps used for each version:
 
@@ -300,4 +314,57 @@ git push origin v1.0.1         # a normal git push does not send tags
 ![Docker Hub tags](screenshots/dockerhub-tags.png)
 
 > Note: Docker Hub also shows older tags with a full-length commit SHA (for example `13f4a80cca94ad304…`). These were pushed by the first version of the pipeline (Option 1) before switching to short `sha-` tags.
+
+## Stretch goal – Option 5: Security checks
+
+The assignment refers to OWASP Dependency-Check, but the current **Lesson 4.14** teaches **OSV-Scanner** (Google) in GitHub Actions for dependency scanning, so I followed the lesson.
+
+### Dependency scanning – OSV-Scanner
+
+Workflow: [`.github/workflows/osv-scanner.yml`](.github/workflows/osv-scanner.yml)
+
+- **Runs:** on every push to `main`, every Monday (`cron: "30 1 * * 1"`, to catch newly published vulnerabilities), and manually (`workflow_dispatch`).
+- **Uses** Google's reusable workflow, pinned to the full commit SHA of v2.7.0 (`b1d267a…`), as recommended in the lesson.
+- **Two jobs:**
+  1. `build-jar` – builds the Spring Boot JAR and passes it on as an artifact.
+  2. `scan-scheduled` – scans the whole repo (`pom.xml`, `frontend/package-lock.json`) **and** the JAR with `--x-plugins=java/archive`, so the exact Java library versions are checked (see error 8 for why this was needed).
+- **Results** appear under **Security → Code scanning**. The run fails if any known vulnerability is found.
+
+### What the scan found and what I fixed
+
+| | Before | After |
+|---|---|---|
+| Spring Boot | 4.1.1 | **4.1.2** |
+| Jackson 2 (`com.fasterxml.jackson.core`) | 2.21.5 | **2.21.7** |
+| Jackson 3 (`tools.jackson.core`) | 3.1.5 | **3.1.7** |
+| Findings | **14 vulnerabilities in 4 packages** (0 Critical, 10 High, 4 Medium) | **0** |
+
+All 14 findings were in `jackson-core` and `jackson-databind` (the JSON library Spring uses). They were 7 distinct issues, each reported for both Jackson 2 and Jackson 3, including:
+
+- CVE-2026-89425 – `jackson-core` unbounded StringBuilder growth (DoS) – High
+- CVE-2026-89407 – `jackson-core` ReDoS in number parsing – High
+- CVE-2026-91776 / CVE-2026-91777 – `jackson-databind` resource issues – High
+- CVE-2026-68497 – `jackson-databind` number parse DoS – High
+- CVE-2026-19032, CVE-2026-83557 – `jackson-databind` – Medium
+
+**Fix:** a fixed version existed for every finding. Spring Boot controls the Jackson versions, and Spring Boot **4.1.2** ships Jackson **2.21.7** and **3.1.7** – exactly the fixed versions – so the fix was a one-line upgrade of the parent version in `pom.xml`. I confirmed it locally with `./mvnw dependency:tree | grep jackson` before pushing. After merging, OSV-Scanner was green and the alerts closed automatically. The fix was released as version **1.0.2** (see Option 4).
+
+**Nothing was ignored**, so no `osv-scanner.toml` suppression file was needed.
+
+### No secrets in the repository
+
+- Docker Hub credentials are GitHub Actions secrets; the OpenAI key is only referenced as `${OPENAI_API_KEY}` – no real values are in the code.
+- I searched the **full Git history** for real key patterns (OpenAI/OpenRouter `sk-…`, Docker Hub `dckr_pat_…`, GitHub `ghp_…`, AWS `AKIA…`) and for committed `.env` files – none found.
+- GitHub **secret scanning** is enabled on the repository.
+- `.env` was added to `.gitignore` (Lesson 4.13), so local secret files can never be committed by accident.
+
+### Screenshots
+
+**Before – 14 findings in Code scanning**
+
+![OSV-Scanner findings](screenshots/osv-findings.png)
+
+**After – green scan, alerts closed**
+
+![OSV-Scanner fixed](screenshots/osv-fixed.png)
 
