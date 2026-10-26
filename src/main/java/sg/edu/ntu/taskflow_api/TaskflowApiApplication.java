@@ -15,15 +15,30 @@ public class TaskflowApiApplication {
 		SpringApplication.run(TaskflowApiApplication.class, args);
 	}
 
+	// Seed some example tasks every time the app starts (data is in memory only)
 	@Bean
-	CommandLineRunner seedDefaultTask(TaskService taskService) {
+	CommandLineRunner seedDefaultTasks(TaskService taskService) {
 		return args -> {
-			Task task = new Task();
-			task.setTitle("Sample task");
-			task.setDescription("Confirm the Taskflow API is running.");
-			task.setCompleted(false);
-			taskService.createTask(task);
+			seedTask(taskService, "Sample task",
+					"Confirm the Taskflow API is running.", false);
+			seedTask(taskService, "Write Dockerfile",
+					"Create a multi-stage Docker build for the TaskFlow API.", true);
+			seedTask(taskService, "Deploy to Railway",
+					"Deploy the API to Railway and generate a public domain.", true);
+			seedTask(taskService, "Add CI pipeline",
+					"Build, test and publish the image to Docker Hub with GitHub Actions.", true);
+			seedTask(taskService, "Improve the frontend",
+					"Add buttons to create, complete and delete tasks from the React page.", false);
 		};
+	}
+
+	private static void seedTask(TaskService taskService, String title,
+			String description, boolean completed) {
+		Task task = new Task();
+		task.setTitle(title);
+		task.setDescription(description);
+		task.setCompleted(completed);
+		taskService.createTask(task);
 	}
 
 }
