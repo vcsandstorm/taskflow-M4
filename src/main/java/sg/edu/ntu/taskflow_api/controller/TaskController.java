@@ -74,6 +74,9 @@ public class TaskController {
     @PutMapping("/{id}/complete")
     public ResponseEntity<Task> markTaskAsComplete(@PathVariable Long id) {
         Task completedTask = taskService.markTaskAsComplete(id);
+        if (completedTask == null ) {
+            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+        }
         return new ResponseEntity<>(completedTask, HttpStatus.OK);
     }
 
