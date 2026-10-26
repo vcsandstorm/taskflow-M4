@@ -13,5 +13,38 @@ permissions:
   security-events: write      # needed to show results under Security > Code scanning
 
 jobs:
+  # 1) Build the Spring Boot JAR so the scanner can see the exact library versions inside it.
+  #    (pom.xml alone has no versions - Spring Boot's parent POM sets them - so OSV-Scanner skips them.)
+  build-jar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v7
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Build JAR (no tests)
+        run: ./mvnw -B package -DskipTests
+
+      - name: Upload JAR for scanning
+        uses: actions/upload-artifact@v7
+        with:
+          name: taskflow-jar
+          path: target/*.jar
+          retention-days: 1
+
+  # 2) Scan the repo (pom.xml, frontend/package-lock.json) AND the built JAR.
   scan-scheduled:
+    needs: build-jar
     uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
+    with:
+      download-artifact: taskflow-jar
+      scan-args: |-
+        --x-plugins=java/archive
+        -r
+        ./
